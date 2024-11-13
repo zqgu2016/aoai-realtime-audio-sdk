@@ -4,7 +4,7 @@
 import { Player } from "./player.ts";
 import { Recorder } from "./recorder.ts";
 import "./style.css";
-import { LowLevelRTClient, SessionUpdateMessage } from "rt-client";
+import { LowLevelRTClient, ServerVAD, SessionUpdateMessage } from "rt-client";
 
 let realtimeStreaming: LowLevelRTClient;
 let audioRecorder: Recorder;
@@ -47,6 +47,9 @@ function createConfigMessage() : SessionUpdateMessage {
   const systemMessage = getSystemMessage();
   const temperature = getTemperature();
   const voice = getVoice();
+  const threshold = getThreshold();
+  const prefixPaddingMs = getPrefixPaddingMs();
+  const silenceDurationMs = getSilenceDurationMs();
 
   if (systemMessage) {
     configMessage.session.instructions = systemMessage;
@@ -56,6 +59,15 @@ function createConfigMessage() : SessionUpdateMessage {
   }
   if (voice) {
     configMessage.session.voice = voice;
+  }
+  if (!isNaN(threshold)) {
+    (configMessage.session.turn_detection as ServerVAD).threshold = threshold;
+  }
+  if (!isNaN(prefixPaddingMs)) {
+    (configMessage.session.turn_detection as ServerVAD).prefix_padding_ms = prefixPaddingMs;
+  }
+  if (!isNaN(silenceDurationMs)) {
+    (configMessage.session.turn_detection as ServerVAD).silence_duration_ms = silenceDurationMs;
   }
 
   return configMessage;
@@ -176,6 +188,9 @@ const formSessionInstructionsField =
   document.querySelector<HTMLTextAreaElement>("#session-instructions")!;
 const formTemperatureField = document.querySelector<HTMLInputElement>("#temperature")!;
 const formVoiceSelection = document.querySelector<HTMLInputElement>("#voice")!;
+const formThresholdField = document.querySelector<HTMLInputElement>("#threshold")!;
+const formPrefixPaddingMsField = document.querySelector<HTMLInputElement>("#prefix-padding-ms")!;
+const formSilenceDurationMsField = document.querySelector<HTMLInputElement>("#silence-duration-ms")!;
 
 let latestInputSpeechBlock: Element;
 
@@ -214,6 +229,18 @@ function getTemperature(): number {
 
 function getVoice(): "alloy" | "echo" | "shimmer" {
   return formVoiceSelection.value as "alloy" | "echo" | "shimmer";
+}
+
+function getThreshold(): number {
+  return parseFloat(formThresholdField.value);
+}
+
+function getPrefixPaddingMs(): number {
+  return parseFloat(formPrefixPaddingMsField.value);
+}
+
+function getSilenceDurationMs(): number {
+  return parseFloat(formSilenceDurationMsField.value);
 }
 
 function makeNewTextBlock(text: string = "") {
