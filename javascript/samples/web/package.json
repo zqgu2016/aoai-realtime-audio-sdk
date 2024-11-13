@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host --port 5174",
+    "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "format": "prettier --write src public"
@@ -14,7 +14,8 @@
     "@types/node": "^22.7.4",
     "prettier": "^3.3.3",
     "typescript": "^5.2.2",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "vite-plugin-mkcert": "^1.17.6"
   },
   "dependencies": {
     "@azure/identity": "^4.4.1",
