@@ -5,10 +5,14 @@ import { Player } from "./player.ts";
 import { Recorder } from "./recorder.ts";
 import "./style.css";
 import { LowLevelRTClient, ServerVAD, SessionUpdateMessage } from "rt-client";
+import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 
 let realtimeStreaming: LowLevelRTClient;
 let audioRecorder: Recorder;
 let audioPlayer: Player;
+let enableAzureSpeech = false;
+let speechRecognizer: sdk.SpeechRecognizer;
+let pushStream: sdk.PushAudioInputStream;
 
 async function start_realtime(endpoint: string, apiKey: string, deploymentOrModel: string) {
   if (isAzureOpenAI()) {
@@ -30,9 +34,9 @@ async function start_realtime(endpoint: string, apiKey: string, deploymentOrMode
   await Promise.all([resetAudio(true), handleRealtimeMessages()]);
 }
 
-function createConfigMessage() : SessionUpdateMessage {
+function createConfigMessage(): SessionUpdateMessage {
 
-  let configMessage : SessionUpdateMessage = {
+  let configMessage: SessionUpdateMessage = {
     type: "session.update",
     session: {
       turn_detection: {
@@ -40,7 +44,26 @@ function createConfigMessage() : SessionUpdateMessage {
       },
       input_audio_transcription: {
         model: "whisper-1"
-      }
+      },
+      tools: [
+        {
+          type: "function",
+          name: "get_weather_for_location",
+          description: "gets the weather for a location",
+          parameters: {
+            type: "object",
+            properties: {
+              city: {
+                type: "string",
+                description: "The city"
+              },
+            },
+            required: [
+              "city"
+            ]
+          }
+        }
+      ]
     }
   };
 
@@ -73,11 +96,50 @@ function createConfigMessage() : SessionUpdateMessage {
   return configMessage;
 }
 
+function getWeather(city) {
+  return `
+  城市: ${city}
+  温度: 20°C
+  天气: 晴天
+  湿度: 50%`
+}
+
+async function handleFunctionCall(message: any) {
+
+  const params = JSON.parse(message.arguments)
+
+  let funcName = message.name
+  if (funcName === 'get_weather_for_location') {
+    console.log('funcName', funcName) //  get Data
+    const msg = {
+      type: "conversation.item.create",
+      previous_item_id: message.item_id,
+      item: {
+        type: 'message',
+        role: "user",
+        content: [{
+          type: "input_text",
+          text: getWeather(params.city),
+        }],
+        status: 'completed',
+      }
+    }
+    realtimeStreaming.send(msg)
+  }
+
+  realtimeStreaming.send({
+    type: "response.create"
+  })
+}
+
 async function handleRealtimeMessages() {
   for await (const message of realtimeStreaming.messages()) {
     let consoleLog = "" + message.type;
 
     switch (message.type) {
+      case 'response.function_call_arguments.done':
+        handleFunctionCall(message)
+        break
       case "session.created":
         setFormInputState(InputState.ReadyToStop);
         makeNewTextBlock("<< Session Started >>");
@@ -95,8 +157,15 @@ async function handleRealtimeMessages() {
 
       case "input_audio_buffer.speech_started":
         makeNewTextBlock("<< Speech Started >>");
-        let textElements = formReceivedTextContainer.children;
-        latestInputSpeechBlock = textElements[textElements.length - 1];
+        if (enableAzureSpeech) {
+          makeNewTextBlock("<< Azure Speech Started >>");
+          let textElements = formReceivedTextContainer.children;
+          latestInputSpeechBlock = textElements[textElements.length - 2];
+          latestInputAzureSpeechBlock = textElements[textElements.length - 1];
+        } else {
+          let textElements = formReceivedTextContainer.children;
+          latestInputSpeechBlock = textElements[textElements.length - 1];
+        }
         makeNewTextBlock();
         audioPlayer.clear();
         break;
@@ -132,6 +201,10 @@ function combineArray(newData: Uint8Array) {
 }
 
 function processAudioRecordingBuffer(data: Buffer) {
+  if (enableAzureSpeech) {
+    pushStream?.write(data)
+  }
+
   const uint8Array = new Uint8Array(data);
   combineArray(uint8Array);
   if (buffer.length >= 4800) {
@@ -157,6 +230,12 @@ async function resetAudio(startRecording: boolean) {
   if (audioPlayer) {
     audioPlayer.clear();
   }
+  if (speechRecognizer) {
+    speechRecognizer.stopContinuousRecognitionAsync();
+  }
+  if (pushStream) {
+    pushStream.close();
+  }
   audioRecorder = new Recorder(processAudioRecordingBuffer);
   audioPlayer = new Player();
   audioPlayer.init(24000);
@@ -164,6 +243,61 @@ async function resetAudio(startRecording: boolean) {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioRecorder.start(stream);
     recordingActive = true;
+
+    const subscriptionKey = document.querySelector<HTMLInputElement>(
+      "#azure-speech-key",
+    )!.value.trim();
+    const region = document.querySelector<HTMLInputElement>(
+      "#azure-speech-region",
+    )!.value.trim();
+
+    enableAzureSpeech = !!(subscriptionKey && region);
+
+    if (!enableAzureSpeech) {
+      return;
+    }
+
+    const speechConfig = sdk.SpeechConfig.fromSubscription(subscriptionKey, region);
+    speechConfig.speechRecognitionLanguage = 'zh-CN';
+    speechConfig.setProfanity(sdk.ProfanityOption.Raw);
+
+    pushStream = sdk.AudioInputStream.createPushStream();
+    const audioConfig = sdk.AudioConfig.fromDefaultMicrophoneInput();
+    // let audioConfig = sdk.AudioConfig.fromStreamInput(pushStream);
+    speechRecognizer = new sdk.SpeechRecognizer(speechConfig, audioConfig);
+
+    speechRecognizer.recognizing = (s, e) => {
+      console.log(`RECOGNIZING: Text=${e.result.text}`);
+    };
+
+    speechRecognizer.recognized = (s, e) => {
+      if (e.result.reason == sdk.ResultReason.RecognizedSpeech) {
+        latestInputAzureSpeechBlock.textContent += " User: " + e.result.text;
+        console.log(`RECOGNIZED: Text=${e.result.text}`);
+      }
+      else if (e.result.reason == sdk.ResultReason.NoMatch) {
+        console.log("NOMATCH: Speech could not be recognized.");
+      }
+    };
+
+    speechRecognizer.canceled = (s, e) => {
+      console.log(`CANCELED: Reason=${e.reason}`);
+
+      if (e.reason == sdk.CancellationReason.Error) {
+        console.log(`"CANCELED: ErrorCode=${e.errorCode}`);
+        console.log(`"CANCELED: ErrorDetails=${e.errorDetails}`);
+        console.log("CANCELED: Did you set the speech resource key and region values?");
+      }
+
+      speechRecognizer.stopContinuousRecognitionAsync();
+    };
+
+    speechRecognizer.sessionStopped = (s, e) => {
+      console.log("\n    Session stopped event.");
+      speechRecognizer.stopContinuousRecognitionAsync();
+    };
+
+    speechRecognizer.startContinuousRecognitionAsync();
   }
 }
 
@@ -193,6 +327,7 @@ const formPrefixPaddingMsField = document.querySelector<HTMLInputElement>("#pref
 const formSilenceDurationMsField = document.querySelector<HTMLInputElement>("#silence-duration-ms")!;
 
 let latestInputSpeechBlock: Element;
+let latestInputAzureSpeechBlock: Element;
 
 enum InputState {
   Working,
