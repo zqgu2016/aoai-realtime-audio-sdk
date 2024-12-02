@@ -90,7 +90,10 @@ public class Program
             {
                 Console.Write(deltaUpdate.AudioTranscript);
                 Console.Write(deltaUpdate.Text);
-                speakerOutput.EnqueueForPlayback(deltaUpdate.AudioBytes);
+                if (deltaUpdate.AudioBytes != null)
+                {
+                    speakerOutput.EnqueueForPlayback(deltaUpdate.AudioBytes);
+                }
             }
 
             // response.output_item.done tells us that a model-generated item with streaming content is completed.
