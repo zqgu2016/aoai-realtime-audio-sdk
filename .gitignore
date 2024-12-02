@@ -402,3 +402,5 @@ FodyWeavers.xsd
 *.zip
 
 .vscode
+venv
+.env

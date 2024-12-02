@@ -1,0 +1,8 @@
+python-dotenv
+
+websockets
+fastapi[standard]
+beautifulsoup4
+aiohttp
+
+azure-cognitiveservices-speech
