@@ -93,8 +93,8 @@ async def receive_response(
             asyncio.create_task(receive_function_call_item(item))
 
     print(prefix, f"Response completed ({response.status})")
-    if response.status == "completed":
-        await client.close()
+    # if response.status == "completed":
+    #     await client.close()
 
 
 async def receive_input_item(item: RTInputAudioItem, websocket: WebSocket):
