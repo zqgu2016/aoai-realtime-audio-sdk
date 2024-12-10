@@ -22,6 +22,8 @@ uvicorn main:app
 
 # server mode
 nohup uvicorn main:app --host 0.0.0.0 --port 8001 --ssl-keyfile=../realtime-sample-web/certificates/localhost-key.pem --ssl-certfile=../realtime-sample-web/certificates/localhost.pem &
+# server address
+wss://172.207.17.188:8001/realtime
 ```
 
 # Frontend
