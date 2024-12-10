@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prod": "next dev -H 0.0.0.0 -p 3001 --experimental-https",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3001",
+    "start": "next start",
     "lint": "next lint",
     "format": "prettier --write src"
   },
