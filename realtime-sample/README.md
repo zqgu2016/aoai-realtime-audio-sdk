@@ -12,7 +12,7 @@ python -m venv venv
 source venv/bin/activate
 
 pip install -r requirements.txt
-pip install rtclient-0.5.2-py3-none-any.whl
+pip install rtclient-0.5.3-py3-none-any.whl
 
 # dev mode
 uvicorn main:app --reload

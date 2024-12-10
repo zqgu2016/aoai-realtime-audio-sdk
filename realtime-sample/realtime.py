@@ -1,11 +1,13 @@
 import asyncio
-import base64
+import json
 import os
 
 from azure.core.credentials import AzureKeyCredential
 from fastapi import WebSocket, WebSocketDisconnect
 from rtclient import (
+    FunctionCallOutputItem,
     InputAudioTranscription,
+    InputTextContentPart,
     RTAudioContent,
     RTClient,
     RTFunctionCallItem,
@@ -13,22 +15,26 @@ from rtclient import (
     RTMessageItem,
     RTResponse,
     ServerVAD,
+    UserMessageItem,
 )
-from sample_tools import signature_search_from_web
+from sample_tools import search_from_web, signature_search_from_web
 
 
-async def send_audio(client: RTClient, websocket: WebSocket):
+async def send_input(client: RTClient, websocket: WebSocket):
     while True:
         try:
-            message = await websocket.receive_json()
-            base64_audio = message["audio"]
-            # TODO: 目前只处理音频输入
-            if base64_audio:
-                try:
-                    byte_array = bytearray(base64.b64decode(base64_audio))
-                except Exception as e:
-                    print(f"Decode error: {e}")
-                await client.send_audio(byte_array)
+            message = await websocket.receive()
+            if "text" in message:
+                text = message["text"]
+                data = json.loads(text)
+                await client.send_item(
+                    UserMessageItem(content=[InputTextContentPart(text=data["text"])])
+                )
+                await client.generate_response()
+            elif "bytes" in message:
+                # TODO: 目前只处理音频输入
+                base64_audio = message["bytes"]
+                await client.send_audio(base64_audio)
 
         except WebSocketDisconnect:
             break
@@ -43,12 +49,7 @@ async def receive_message_item(item: RTMessageItem, websocket: WebSocket):
                 audio_data = bytearray()
                 async for chunk in audioContentPart.audio_chunks():
                     audio_data.extend(chunk)
-                    await websocket.send_json(
-                        {
-                            "type": "response.audio.delta",
-                            "delta": base64.b64encode(chunk).decode("utf-8"),
-                        }
-                    )
+                    await websocket.send_bytes(chunk)
                 return audio_data
 
             async def collect_transcript(audioContentPart: RTAudioContent):
@@ -56,7 +57,7 @@ async def receive_message_item(item: RTMessageItem, websocket: WebSocket):
                 async for chunk in audioContentPart.transcript_chunks():
                     audio_transcript += chunk
                     await websocket.send_json(
-                        {"type": "response.audio_transcript.delta", "delta": chunk}
+                        {"type": "text_delta", "delta": chunk, "id": item.id}
                     )
                 return audio_transcript
 
@@ -71,14 +72,25 @@ async def receive_message_item(item: RTMessageItem, websocket: WebSocket):
             text_data = ""
             async for chunk in contentPart.text_chunks():
                 text_data += chunk
+                await websocket.send_json(
+                    {"type": "text_delta", "delta": chunk, "id": item.id}
+                )
             print(prefix, f"Text: {text_data}")
 
 
-async def receive_function_call_item(item: RTFunctionCallItem):
+async def receive_function_call_item(client: RTClient, item: RTFunctionCallItem):
     prefix = f"[function_call_item={item.id}]"
     await item
     print(prefix, f"Function call arguments: {item.arguments}")
     print(f"{item.id}.function_call.json")
+    if item.function_name == "search_from_web":
+        arguments = json.loads(item.arguments)
+        result = await search_from_web(**arguments)
+        await client.send_item(
+            FunctionCallOutputItem(call_id=item.call_id, output=result),
+            previous_item_id=item.id,
+        )
+        await client.generate_response()
 
 
 async def receive_response(
@@ -90,11 +102,9 @@ async def receive_response(
         if item.type == "message":
             asyncio.create_task(receive_message_item(item, websocket))
         elif item.type == "function_call":
-            asyncio.create_task(receive_function_call_item(item))
+            asyncio.create_task(receive_function_call_item(client, item))
 
     print(prefix, f"Response completed ({response.status})")
-    # if response.status == "completed":
-    #     await client.close()
 
 
 async def receive_input_item(item: RTInputAudioItem, websocket: WebSocket):
@@ -104,7 +114,7 @@ async def receive_input_item(item: RTInputAudioItem, websocket: WebSocket):
     print(prefix, f"Audio Start [ms]: {item.audio_start_ms}")
     print(prefix, f"Audio End [ms]: {item.audio_end_ms}")
     await websocket.send_json(
-        {"type": "response.audio_transcript.delta", "delta": item.transcript}
+        {"type": "transcription", "text": item.transcript, "id": item.id}
     )
 
 
@@ -140,7 +150,7 @@ async def run(client: RTClient, websocket: WebSocket):
     print("Done")
 
     await asyncio.gather(
-        send_audio(client, websocket), receive_messages(client, websocket)
+        send_input(client, websocket), receive_messages(client, websocket)
     )
     print("Session closed")
 
