@@ -68,7 +68,7 @@ function isValidURL(url: string) {
 }
 
 const ChatInterface = () => {
-  const [endpoint, setEndpoint] = useState("ws://localhost:8000/realtime");
+  const [endpoint, setEndpoint] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentMessage, setCurrentMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -251,7 +251,7 @@ const ChatInterface = () => {
           </div>
           <div className="space-y-4">
             <Input
-              placeholder="Endpoint"
+              placeholder="ws://localhost:8000/realtime"
               value={endpoint}
               onChange={(e) => validateEndpoint(e.target.value)}
               disabled={isConnected}
@@ -264,7 +264,7 @@ const ChatInterface = () => {
           className="mt-4"
           variant={isConnected ? "destructive" : "default"}
           onClick={handleConnect}
-          disabled={isConnecting || !validEndpoint}
+          disabled={isConnecting || !validEndpoint || !endpoint}
         >
           <Power className="w-4 h-4 mr-2" />
           {isConnecting

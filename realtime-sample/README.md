@@ -19,6 +19,9 @@ uvicorn main:app --reload
 
 # prod mode
 uvicorn main:app
+
+# server mode
+nohup uvicorn main:app --host 0.0.0.0 --port 8001 &
 ```
 
 # Frontend
